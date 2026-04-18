@@ -1,0 +1,21 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "audio_capture.c"
+        "imu_driver.c"
+        "network.c"
+        "buzzer_control.c"
+        "display.c"
+        "calibration.c"
+        "test_mode.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        nvs_flash
+        esp_wifi
+        esp_netif
+        esp_event
+        driver
+        esp_timer
+        lwip
+        led_strip
+)
