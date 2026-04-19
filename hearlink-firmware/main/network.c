@@ -37,8 +37,8 @@ typedef struct __attribute__((packed)) {
     int32_t  audio[NUM_CHANNELS][SAMPLES_PER_SUBPKT];
 } AudioIMUSubPacket;
 
-_Static_assert(sizeof(AudioIMUSubPacket) == 1296,
-               "AudioIMUSubPacket size must be 1296 bytes");
+_Static_assert(sizeof(AudioIMUSubPacket) == 1292,
+               "AudioIMUSubPacket size must be 1292 bytes");
 
 // ── Inbound command types ─────────────────────────────────────────────────────
 
@@ -53,6 +53,8 @@ typedef enum {
     CMD_TEST_DISPLAY     = 0x12,
     CMD_TEST_MICS        = 0x13,
     CMD_TEST_IMU         = 0x14,
+    CMD_TEST_MICS_INDIV  = 0x15,
+    CMD_TEST_BUZZER_SOLO = 0x16,
 } CommandType;
 
 typedef enum {
@@ -206,7 +208,8 @@ static void udp_tx_task(void *arg)
             int sent = sendto(sock, &pkt, sizeof(pkt), 0,
                               (struct sockaddr *)&dest, sizeof(dest));
             if (sent < 0) {
-                ESP_LOGW(TAG, "sendto failed: errno %d", errno);
+                ESP_LOGD(TAG, "sendto failed: errno %d", errno);
+                vTaskDelay(pdMS_TO_TICKS(5));
             }
         }
         seq++;
@@ -224,9 +227,9 @@ void udp_tx_start(QueueHandle_t audio_queue)
 
 static uint8_t direction_to_buzzer_mask(uint8_t direction)
 {
-    // 8 buzzers evenly spaced; buzzer 0 = 0°, buzzer 1 = 45°, ..., buzzer 7 = 315°
-    // Map direction 0–255 → buzzer index 0–7 (nearest)
-    uint8_t idx = (uint8_t)(((uint16_t)direction * 8 + 128) / 256) % 8;
+    // NUM_BUZZERS buzzers evenly spaced around the ring.
+    // Map direction 0–255 → buzzer index 0..NUM_BUZZERS-1 (nearest)
+    uint8_t idx = (uint8_t)(((uint16_t)direction * NUM_BUZZERS + 128) / 256) % NUM_BUZZERS;
     return (uint8_t)(1u << idx);
 }
 
@@ -329,10 +332,18 @@ static void udp_rx_task(void *arg)
         case CMD_TEST_BUZZERS:
         case CMD_TEST_DISPLAY:
         case CMD_TEST_MICS:
+        case CMD_TEST_MICS_INDIV:
         case CMD_TEST_IMU:
         case CMD_TEST_MODE:
             if (test_task_handle) {
                 xTaskNotify(test_task_handle, cmd.type, eSetValueWithOverwrite);
+            }
+            break;
+        case CMD_TEST_BUZZER_SOLO:
+            // Pack buzzer index (from direction byte) into bits 8-15 of the notify word
+            if (test_task_handle) {
+                uint32_t word = (uint32_t)cmd.type | ((uint32_t)cmd.direction << 8);
+                xTaskNotify(test_task_handle, word, eSetValueWithOverwrite);
             }
             break;
         default:

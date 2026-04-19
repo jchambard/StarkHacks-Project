@@ -1,0 +1,12 @@
+# ESP-IDF build artifacts
+hearlink-firmware/build/
+hearlink-firmware/.cache/
+hearlink-firmware/managed_components/
+hearlink-firmware/dependencies.lock
+hearlink-firmware/sdkconfig.old
+
+# Large vendored library — track via submodule or package manager instead
+components/u8g2/
+
+# macOS
+.DS_Store

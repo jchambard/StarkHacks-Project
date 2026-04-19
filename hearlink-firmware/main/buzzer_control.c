@@ -25,7 +25,16 @@ static BuzzerState bstate[NUM_BUZZERS];
 
 static void set_duty(uint8_t idx, uint8_t intensity)
 {
-    uint32_t duty = ((uint32_t)intensity * 1023) / 100;
+    if (intensity == 0) {
+        // Force the pin to idle LOW — ledc_set_duty(0) alone can leave the
+        // channel "running" and produce residual glitches.
+        ledc_stop(LEDC_LOW_SPEED_MODE, (ledc_channel_t)idx, 0);
+        return;
+    }
+    if (intensity > 100) intensity = 100;
+    // Piezo volume is proportional to AC swing, which peaks at 50% duty.
+    // Map intensity 1..100 → duty 1..512 (≈0.1% .. 50%).
+    uint32_t duty = ((uint32_t)intensity * 1023) / 200;
     ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)idx, duty);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)idx);
 }

@@ -26,7 +26,17 @@ void test_mode_display(void);
 /** Print per-channel RMS to serial for 10 seconds. */
 void test_mode_mics(QueueHandle_t audio_queue);
 
+/**
+ * Cycle through mics 0→3 one at a time, printing a big banner + live peak
+ * bar for only that channel. Useful for isolating wiring issues per bus/slot.
+ * Runs for MIC_TEST_SECONDS_PER_MIC seconds per mic, then returns.
+ */
+void test_mode_mics_individual(QueueHandle_t audio_queue);
+
 /** Print raw IMU yaw rate to serial every 100ms for 10 seconds. */
 void test_mode_imu(void);
+
+/** Fire a single buzzer at 100% intensity for 10 seconds. Logs start/end. */
+void test_mode_buzzer_solo(uint8_t index);
 
 #endif // TEST_MODE_H

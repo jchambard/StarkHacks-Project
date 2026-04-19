@@ -11,6 +11,7 @@ extern SemaphoreHandle_t imu_mutex;
 
 static const char *TAG = "IMU";
 static i2c_master_dev_handle_t imu_dev = NULL;
+static bool imu_ready = false;
 
 // ── Low-level register helpers ───────────────────────────────────────────────
 
@@ -69,6 +70,7 @@ esp_err_t imu_init(i2c_master_bus_handle_t i2c_bus)
     }
 
     ESP_LOGI(TAG, "MPU-6050 initialized (±250°/s, 131 LSB/°/s)");
+    imu_ready = true;
     return ESP_OK;
 }
 
@@ -90,10 +92,12 @@ static void imu_poll_task(void *arg)
 {
     ESP_LOGI(TAG, "IMU poll task running (100Hz)");
     for (;;) {
-        int16_t yaw = imu_read_yaw_rate();
-        xSemaphoreTake(imu_mutex, portMAX_DELAY);
-        latest_imu_yaw_rate = yaw;
-        xSemaphoreGive(imu_mutex);
+        if (imu_ready) {
+            int16_t yaw = imu_read_yaw_rate();
+            xSemaphoreTake(imu_mutex, portMAX_DELAY);
+            latest_imu_yaw_rate = yaw;
+            xSemaphoreGive(imu_mutex);
+        }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

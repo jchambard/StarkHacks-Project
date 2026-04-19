@@ -81,9 +81,15 @@ void app_main(void)
 
     // ── 4. Hardware init ──────────────────────────────────────────────────────
     ESP_ERROR_CHECK(audio_capture_init());
-    ESP_ERROR_CHECK(imu_init(i2c_bus));
+    esp_err_t imu_err = imu_init(i2c_bus);
+    if (imu_err != ESP_OK) {
+        ESP_LOGW(TAG, "IMU not found (%s) — check wiring on GPIO8/9", esp_err_to_name(imu_err));
+    }
     ESP_ERROR_CHECK(buzzer_init());
-    ESP_ERROR_CHECK(display_init(i2c_bus));
+    esp_err_t disp_err = display_init(i2c_bus);
+    if (disp_err != ESP_OK) {
+        ESP_LOGW(TAG, "OLED not found (%s) — check wiring on GPIO8/9", esp_err_to_name(disp_err));
+    }
 
     // ── 5. Calibration (loads NVS → applies offsets to audio) ─────────────────
     ESP_ERROR_CHECK(calibration_init());
@@ -94,6 +100,20 @@ void app_main(void)
     display_queue = xQueueCreate(5,  sizeof(DisplayCommand));
     imu_mutex     = xSemaphoreCreateMutex();
     configASSERT(audio_queue && buzzer_queue && display_queue && imu_mutex);
+
+#if MIC_TEST_BOOT_MODE
+    // Bring-up path: skip network/app and just cycle each mic one at a time.
+    // Must run in its own task — AudioBuffer (~2.5KB) won't fit on app_main's
+    // default ~3.5KB stack.
+    ESP_LOGW(TAG, "MIC_TEST_BOOT_MODE=1 — entering single-mic bring-up loop");
+    led_set(16, 8, 0);  // amber = test mode
+    audio_capture_start(audio_queue);
+    extern void mic_test_loop_task(void *arg);
+    xTaskCreatePinnedToCore(mic_test_loop_task, "mic_test_loop",
+                            STACK_SIZE_TEST, audio_queue,
+                            PRIORITY_TEST, NULL, 0);
+    for (;;) vTaskDelay(portMAX_DELAY);
+#endif
 
     // ── 7. Network ────────────────────────────────────────────────────────────
     ESP_ERROR_CHECK(network_init());

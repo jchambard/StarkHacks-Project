@@ -9,6 +9,22 @@
 #define NUM_CHANNELS        4
 #define MAX_CAL_OFFSET      64   // max ±samples for calibration ring buffer
 
+// Mic-presence detection (run once at startup).
+// A working I²S mic produces ambient noise with non-trivial peak-to-peak;
+// a disconnected mic floats and reads as ~constant or low-amplitude garbage.
+// MEMS mics output saturated junk for ~tens of ms after BCLK starts, so we
+// wait + drain before measuring.
+#define MIC_WARMUP_MS              200
+#define MIC_WARMUP_DRAIN_BUFFERS   8
+#define MIC_DETECT_BUFFERS         8
+#define MIC_DETECT_MIN_PP          100000   // 32-bit raw LSBs; tune from reported numbers
+
+// Single-mic bring-up mode: set to 1 to skip the normal app on boot and loop
+// through each mic one at a time with a big banner + live amplitude bars.
+// Leave at 0 for normal operation.
+#define MIC_TEST_BOOT_MODE         0
+#define MIC_TEST_SECONDS_PER_MIC   10
+
 // I²S GPIO
 #define I2S0_BCLK_PIN       4
 #define I2S0_LRCLK_PIN      5
@@ -22,10 +38,11 @@
 #define I2C_SCL_PIN         9
 #define I2C_FREQ_HZ         400000
 
-// Buzzer GPIO (8 channels)
-#define BUZZER_PINS         { 1, 2, 10, 11, 12, 13, 14, 17 }
-#define NUM_BUZZERS         8
-#define BUZZER_PWM_FREQ     400   // Hz
+// Buzzer GPIO (4 channels — 4 PCB control boards available)
+// Order: buzzer 0=front, 1=right, 2=back, 3=left (90° spacing)
+#define BUZZER_PINS         { 1, 2, 10, 11 }
+#define NUM_BUZZERS         4
+#define BUZZER_PWM_FREQ     200   // Hz
 #define BUZZER_PWM_RES      LEDC_TIMER_10_BIT
 
 // Status LED (WS2812 addressable on ESP32-S3-DevKitC-1)
@@ -64,13 +81,13 @@
 #define PRIORITY_TEST           1
 
 // Task stack sizes (bytes)
-#define STACK_SIZE_AUDIO        4096
-#define STACK_SIZE_UDP_TX       4096
-#define STACK_SIZE_UDP_RX       3072
-#define STACK_SIZE_IMU          2048
-#define STACK_SIZE_BUZZER       2048
-#define STACK_SIZE_DISPLAY      3072
-#define STACK_SIZE_TEST         3072
+#define STACK_SIZE_AUDIO        8192
+#define STACK_SIZE_UDP_TX       8192
+#define STACK_SIZE_UDP_RX       8192
+#define STACK_SIZE_IMU          4096
+#define STACK_SIZE_BUZZER       4096
+#define STACK_SIZE_DISPLAY      4096
+#define STACK_SIZE_TEST         8192
 
 // Display
 #define OLED_ADDR           0x3C

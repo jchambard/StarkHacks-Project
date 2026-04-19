@@ -47,8 +47,8 @@ static esp_err_t init_i2s_controller(i2s_port_t port,
 
     i2s_std_config_t std_cfg = {
         .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE),
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT,
-                                                     I2S_SLOT_MODE_STEREO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT,
+                                                         I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = bclk,
@@ -91,6 +91,9 @@ esp_err_t audio_capture_init(void)
     return err;
 }
 
+// Raw DMA buffer size for one 160-sample stereo read (2 channels × 160 × 4 bytes)
+#define DMA_BUF_BYTES  (SAMPLES_PER_BUFFER * 2 * sizeof(int32_t))
+
 // ── Calibration offset application ─────────────────────────────────────────
 
 void audio_set_calibration_offsets(int32_t offsets[4])
@@ -128,9 +131,6 @@ static inline int32_t ring_push_read(int ch, int32_t sample, int32_t offset)
 
 // ── Capture task ─────────────────────────────────────────────────────────────
 
-// Raw DMA buffer for one 160-sample stereo read (2 channels × 160 × 4 bytes)
-#define DMA_BUF_BYTES  (SAMPLES_PER_BUFFER * 2 * sizeof(int32_t))
-
 static void audio_capture_task(void *arg)
 {
     QueueHandle_t q = (QueueHandle_t)arg;
@@ -149,6 +149,56 @@ static void audio_capture_task(void *arg)
     portENABLE_INTERRUPTS();
 
     ESP_LOGI(TAG, "Audio capture task running");
+
+    // MEMS mics need ~tens of ms of valid BCLK before producing valid data.
+    // Wait, then drain a few DMA buffers so the saturated startup transient
+    // doesn't poison the detection window below.
+    vTaskDelay(pdMS_TO_TICKS(MIC_WARMUP_MS));
+    {
+        size_t br;
+        for (int n = 0; n < MIC_WARMUP_DRAIN_BUFFERS; n++) {
+            i2s_channel_read(rx0, raw0, DMA_BUF_BYTES, &br, pdMS_TO_TICKS(100));
+            i2s_channel_read(rx1, raw1, DMA_BUF_BYTES, &br, pdMS_TO_TICKS(100));
+        }
+    }
+
+    // Check each mic for plausible signal: collect several buffers and
+    // require a minimum peak-to-peak. Floating SD lines on a shared bus
+    // can produce sparse non-zero samples via coupling, so a single
+    // non-zero sample isn't sufficient evidence of a working mic.
+    {
+        int32_t mn[NUM_CHANNELS], mx[NUM_CHANNELS];
+        for (int c = 0; c < NUM_CHANNELS; c++) {
+            mn[c] = INT32_MAX;
+            mx[c] = INT32_MIN;
+        }
+        size_t br;
+        for (int n = 0; n < MIC_DETECT_BUFFERS; n++) {
+            bool ok0 = (i2s_channel_read(rx0, raw0, DMA_BUF_BYTES, &br, pdMS_TO_TICKS(100)) == ESP_OK);
+            bool ok1 = (i2s_channel_read(rx1, raw1, DMA_BUF_BYTES, &br, pdMS_TO_TICKS(100)) == ESP_OK);
+            if (!ok0 || !ok1) continue;
+            for (int i = 0; i < SAMPLES_PER_BUFFER; i++) {
+                int32_t s[4] = {
+                    raw0[i * 2 + 0], raw0[i * 2 + 1],
+                    raw1[i * 2 + 0], raw1[i * 2 + 1],
+                };
+                for (int c = 0; c < NUM_CHANNELS; c++) {
+                    if (s[c] < mn[c]) mn[c] = s[c];
+                    if (s[c] > mx[c]) mx[c] = s[c];
+                }
+            }
+        }
+        for (int c = 0; c < NUM_CHANNELS; c++) {
+            int64_t pp = (int64_t)mx[c] - (int64_t)mn[c];
+            if (pp >= MIC_DETECT_MIN_PP) {
+                ESP_LOGI(TAG, "Mic %d OK (p-p=%lld, min=%ld, max=%ld)",
+                         c, pp, (long)mn[c], (long)mx[c]);
+            } else {
+                ESP_LOGW(TAG, "Mic %d not detected (p-p=%lld, min=%ld, max=%ld) — check wiring",
+                         c, pp, (long)mn[c], (long)mx[c]);
+            }
+        }
+    }
 
     for (;;) {
         // Block on I²S0 first (both DMA interrupts will fire nearly together)
